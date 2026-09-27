@@ -299,7 +299,6 @@
       gap: 8px;
     }
 
-    /* ZHRUBNUTÝ A PLNĚ FUNKČNÍ POSUVNÍK S PODPOROU DOTYKŮ */
     input[type="range"] {
       flex: 1;
       accent-color: #ef4444;
@@ -336,25 +335,6 @@
       color: #94a3b8;
     }
 
-    .waveform-zoom-btns {
-      display: flex;
-      gap: 3px;
-    }
-
-    .btn-w-zoom {
-      background: #1e293b;
-      padding: 2px 5px;
-      font-size: 10px;
-      border-radius: 3px;
-      color: #cbd5e1;
-      border: none;
-      cursor: pointer;
-    }
-    .btn-w-zoom.active {
-      background: #0284c7;
-      color: #fff;
-    }
-
     .waveform-canvas-wrapper {
       position: relative;
       width: 100%;
@@ -362,7 +342,7 @@
       background: #090d16;
       border-radius: 4px;
       cursor: crosshair;
-      overflow: hidden;
+      overflow: hidden; /* Zajišťuje fixaci, aby nic nepatřičného nepřetékalo */
     }
 
     #waveformCanvas {
@@ -635,15 +615,7 @@
         <div class="waveform-container desktop-audio-row" id="waveformContainer">
           <div class="waveform-header">
             <span>📊 Audio vlna</span>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <div class="waveform-zoom-btns">
-                <button class="btn-w-zoom active" id="btnWZoom1" onclick="setWaveformZoom(1)">1×</button>
-                <button class="btn-w-zoom" id="btnWZoom2" onclick="setWaveformZoom(2)">2×</button>
-                <button class="btn-w-zoom" id="btnWZoom5" onclick="setWaveformZoom(5)">5×</button>
-                <button class="btn-w-zoom" id="btnWZoom10" onclick="setWaveformZoom(10)">10×</button>
-              </div>
-              <span id="waveformTimeLabel" style="font-size:10px; min-width:45px; text-align:right;">0.00 s</span>
-            </div>
+            <span id="waveformTimeLabel" style="font-size:10px; min-width:45px; text-align:right;">0.00 s</span>
           </div>
           <div class="waveform-canvas-wrapper" id="waveformWrapper">
             <canvas id="waveformCanvas"></canvas>
@@ -885,29 +857,6 @@
     window.addEventListener('mouseup', () => { isPanningVideo = false; });
 
     let audioBufferData = null;
-    let waveformZoomFactor = 1;
-    const BASE_WAVEFORM_DURATION = 30;
-
-    function setWaveformZoom(factor) {
-      waveformZoomFactor = factor;
-      document.querySelectorAll('.btn-w-zoom').forEach(b => b.classList.remove('active'));
-      const activeBtn = document.getElementById(`btnWZoom${factor}`);
-      if (activeBtn) activeBtn.classList.add('active');
-      drawWaveform();
-    }
-
-    function getWaveformWindow() {
-      const windowDuration = BASE_WAVEFORM_DURATION / waveformZoomFactor;
-      let curTime = video.currentTime;
-      let winStart = Math.max(0, curTime - (windowDuration / 2));
-      let winEnd = winStart + windowDuration;
-
-      if (video.duration && winEnd > video.duration) {
-        winEnd = video.duration;
-        winStart = Math.max(0, winEnd - windowDuration);
-      }
-      return { start: winStart, end: winEnd, duration: windowDuration };
-    }
 
     async function loadAudioDataSafe() {
       if (audioBufferData) return audioBufferData;
@@ -949,7 +898,7 @@
     }
 
     function drawWaveform() {
-      if (!audioBufferData) return;
+      if (!audioBufferData || !video.duration) return;
 
       const canvas = waveformCanvas;
       const rect = waveformWrapper.getBoundingClientRect();
@@ -960,9 +909,9 @@
       const channel = audioBufferData.getChannelData(0);
       const sampleRate = audioBufferData.sampleRate;
 
-      const win = getWaveformWindow();
-      const startSample = Math.floor(win.start * sampleRate);
-      const endSample = Math.min(channel.length, Math.floor(win.end * sampleRate));
+      const totalDuration = video.duration;
+      const startSample = 0;
+      const endSample = channel.length;
       const totalSamples = Math.max(1, endSample - startSample);
       const step = Math.max(1, Math.floor(totalSamples / canvas.width));
       const amp = canvas.height / 2;
@@ -1006,14 +955,12 @@
       if (!video.duration) return;
       const rect = waveformWrapper.getBoundingClientRect();
       const clickX = clientX - rect.left;
-      const win = getWaveformWindow();
-      const clickedTime = win.start + ((clickX / rect.width) * win.duration);
+      const clickedTime = (clickX / rect.width) * video.duration;
 
       video.currentTime = Math.max(0, Math.min(video.duration, clickedTime));
       scrubber.value = video.currentTime;
-      startTime = video.currentTime;
       updateHud();
-      drawWaveform();
+      updateWaveformPlayhead();
     }
 
     waveformWrapper.addEventListener('click', (e) => handleWaveformClick(e.clientX));
@@ -1022,25 +969,16 @@
     }, { passive: true });
 
     function updateWaveformPlayhead() {
-      if (waveformContainer.style.display !== 'flex') return;
-      const win = getWaveformWindow();
+      if (waveformContainer.style.display !== 'flex' || !video.duration) return;
       const curTime = video.currentTime;
 
-      if (curTime >= win.start && curTime <= win.end) {
-        const pct = ((curTime - win.start) / win.duration) * 100;
-        waveformPlayhead.style.left = `${pct}%`;
-        waveformPlayhead.style.display = 'block';
-      } else {
-        waveformPlayhead.style.display = 'none';
-      }
+      const pct = (curTime / video.duration) * 100;
+      waveformPlayhead.style.left = `${pct}%`;
+      waveformPlayhead.style.display = 'block';
 
-      if (startTime >= win.start && startTime <= win.end) {
-        const startPct = ((startTime - win.start) / win.duration) * 100;
-        waveformStartMarker.style.left = `${startPct}%`;
-        waveformStartMarker.style.display = 'block';
-      } else {
-        waveformStartMarker.style.display = 'none';
-      }
+      const startPct = (startTime / video.duration) * 100;
+      waveformStartMarker.style.left = `${startPct}%`;
+      waveformStartMarker.style.display = 'block';
 
       waveformTimeLabel.textContent = `${curTime.toFixed(2)} s`;
     }
@@ -1255,7 +1193,6 @@
     }
     requestAnimationFrame(renderLoop);
 
-    // OVLÁDÁNÍ POSUVNÍKU BEZPEČNĚ A HLADCE
     scrubber.addEventListener('mousedown', () => {
       isScrubbing = true;
       video.muted = true;
@@ -1268,9 +1205,7 @@
     scrubber.addEventListener('input', () => {
       video.currentTime = parseFloat(scrubber.value);
       updateHud();
-      if (window.innerWidth > 600 && waveformZoomFactor > 1 && waveformContainer.style.display === 'flex') {
-        drawWaveform();
-      }
+      updateWaveformPlayhead();
     });
     
     scrubber.addEventListener('mouseup', () => {
@@ -1290,9 +1225,7 @@
       video.currentTime = novyCas;
       scrubber.value = novyCas;
       updateHud();
-      if (window.innerWidth > 600 && waveformZoomFactor > 1 && waveformContainer.style.display === 'flex') {
-        drawWaveform();
-      }
+      updateWaveformPlayhead();
     }
 
     function setZeroPoint() {
@@ -1447,6 +1380,7 @@
           video.currentTime = startTime;
           scrubber.value = startTime;
           updateHud();
+          updateWaveformPlayhead();
         } else {
           alert("Výstřel nebyl spolehlivě nalezen. Nastavte čas ručně tlačítkem START.");
         }
